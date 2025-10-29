@@ -1,0 +1,29 @@
+[project]
+name = "deepseek-ocr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "NewGuy", email = "rudolfluttich@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "transformers",
+    "tokenizers",
+    "einops",
+    "addict",
+    "easydict",
+    "pillow",
+    "pdf2image",
+    "tqdm",
+]
+
+[project.scripts]
+deepseek-ocr = "deepseek_ocr:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

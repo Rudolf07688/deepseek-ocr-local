@@ -1,0 +1,51 @@
+
+# Docker Compose for DeepSeek-OCR
+# Optimized for RTX 3080 Ti / CUDA 13.0
+
+version: '3.8'
+
+services:
+  deepseek-ocr:
+    build: .
+    image: deepseek-ocr:latest
+    container_name: deepseek-ocr
+    
+    # GPU access configuration for NVIDIA
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Volume mounts
+    volumes:
+      # Mount input/output directories from Windows to container
+      - ./input:/app/input
+      - ./output:/app/output
+      
+      # Persist model cache (avoid re-downloading 6.6GB model)
+      - huggingface-cache:/app/models
+      
+      # Mount code for development (allows editing without rebuild)
+      - ./deepseek_ocr_pdf.py:/app/deepseek_ocr_pdf.py
+      - ./advanced_examples.py:/app/advanced_examples.py
+      - ./quick_test.py:/app/quick_test.py
+    
+    # Environment variables
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - TRANSFORMERS_CACHE=/app/models
+      - HF_HOME=/app/models
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+
+volumes:
+  # Named volume for HuggingFace model cache
+  # This persists between container restarts
+  huggingface-cache:
