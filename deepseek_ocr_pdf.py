@@ -21,6 +21,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import device configuration
+try:
+    from src.deepseek_ocr.device_config import DeviceConfig, get_device_config
+except ImportError:
+    # Fallback if module not in path
+    try:
+        from deepseek_ocr.device_config import DeviceConfig, get_device_config
+    except ImportError:
+        logger.warning("device_config module not found, using fallback device detection")
+
 
 class DeepSeekOCRProcessor:
     """
@@ -44,55 +54,133 @@ class DeepSeekOCRProcessor:
     }
     
     def __init__(
-        self, 
+        self,
         model_name: str = 'deepseek-ai/DeepSeek-OCR',
-        device: str = 'cuda',
-        use_flash_attention: bool = True
+        device: Optional[str] = None,
+        use_flash_attention: Optional[bool] = None
     ):
         """
         Initialize the DeepSeek-OCR model.
-        
+
         Args:
             model_name: HuggingFace model identifier
-            device: Device to run inference on ('cuda' or 'cpu')
-            use_flash_attention: Whether to use Flash Attention 2 (requires NVIDIA GPU)
+            device: Device to run inference on ('cuda', 'mps', 'cpu', or None for auto-detect)
+            use_flash_attention: Whether to use Flash Attention 2. If None, auto-detect based on device.
+                                 (Flash Attention 2 requires NVIDIA GPU, not available on MPS/CPU)
         """
         logger.info(f"Initializing DeepSeek-OCR model: {model_name}")
-        
-        # Set CUDA device
-        if device == 'cuda' and torch.cuda.is_available():
+
+        # Get device configuration (auto-detect if not specified)
+        try:
+            self.device_config = get_device_config(device)
+        except (NameError, RuntimeError, ValueError) as e:
+            # Fallback if device_config module is not available
+            logger.warning(f"Device config not available: {e}")
+            logger.warning("Using fallback device selection")
+            self._fallback_device_setup(device)
+            return
+
+        # Log device configuration
+        logger.info(f"Device: {self.device_config.device_name}")
+        logger.info(f"Data Type: {self.device_config.dtype}")
+        logger.info(f"Recommended Mode: {self.device_config.recommended_mode}")
+
+        self.device = self.device_config.device
+
+        # Determine Flash Attention usage
+        if use_flash_attention is None:
+            use_flash_attention = self.device_config.use_flash_attention
+        elif use_flash_attention and not self.device_config.use_flash_attention:
+            logger.warning(
+                f"Flash Attention 2 requested but not supported on {self.device}. "
+                "Disabling Flash Attention."
+            )
+            use_flash_attention = False
+
+        # Set CUDA device visibility if using CUDA
+        if self.device == 'cuda':
             os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-            logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
-        else:
-            logger.warning("CUDA not available, falling back to CPU (this will be slow)")
-            device = 'cpu'
-        
-        self.device = device
-        
+
         # Load tokenizer
         logger.info("Loading tokenizer...")
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_name, 
+            model_name,
             trust_remote_code=True
         )
-        
+
         # Load model
         logger.info("Loading model (this may take a few minutes)...")
         model_kwargs = {
             'trust_remote_code': True,
             'use_safetensors': True
         }
-        
-        if use_flash_attention and device == 'cuda':
+
+        # Configure attention implementation
+        if use_flash_attention:
             model_kwargs['_attn_implementation'] = 'flash_attention_2'
             logger.info("Using Flash Attention 2 for improved performance")
-        
+
         self.model = AutoModel.from_pretrained(model_name, **model_kwargs)
         self.model = self.model.eval()
-        
+
+        # Move model to device with appropriate dtype
+        if self.device == 'cuda':
+            self.model = self.model.cuda().to(self.device_config.dtype)
+        elif self.device == 'mps':
+            self.model = self.model.to('mps').to(self.device_config.dtype)
+        else:
+            # CPU: keep as float32
+            self.model = self.model.to(self.device_config.dtype)
+
+        logger.info("Model loaded successfully!")
+
+    def _fallback_device_setup(self, device: Optional[str] = None):
+        """Fallback device setup if device_config module is not available."""
+        if device is None:
+            # Auto-detect: CUDA > MPS > CPU
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+
+        self.device = device
+        logger.info(f"Using device: {device}")
+
+        if device == 'cuda' and torch.cuda.is_available():
+            os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+            logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
+        elif device == 'mps':
+            logger.info("Metal Performance Shaders (macOS) enabled")
+        else:
+            logger.warning("CPU device: This will be very slow")
+
+        # Load tokenizer
+        logger.info("Loading tokenizer...")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            'deepseek-ai/DeepSeek-OCR',
+            trust_remote_code=True
+        )
+
+        # Load model
+        logger.info("Loading model (this may take a few minutes)...")
+        model_kwargs = {
+            'trust_remote_code': True,
+            'use_safetensors': True
+        }
+
+        if device == 'cuda':
+            model_kwargs['_attn_implementation'] = 'flash_attention_2'
+
+        self.model = AutoModel.from_pretrained('deepseek-ai/DeepSeek-OCR', **model_kwargs)
+        self.model = self.model.eval()
+
         if device == 'cuda':
             self.model = self.model.cuda().to(torch.bfloat16)
-        
+        elif device == 'mps':
+            self.model = self.model.to('mps')
+
         logger.info("Model loaded successfully!")
     
     def process_image(

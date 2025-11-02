@@ -1,41 +1,110 @@
-# Quick Test Script for RTX 3080 Ti
-# Processes a single PDF with optimal settings for 12GB VRAM
+# Quick Test Script for DeepSeek-OCR
+# Supports NVIDIA CUDA (Windows/Linux) and Apple MPS (macOS)
 
 from deepseek_ocr_pdf import DeepSeekOCRProcessor
 from pathlib import Path
 import sys
 import time
+import argparse
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='DeepSeek-OCR Quick Test - Process a single PDF',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Windows/Linux with NVIDIA GPU (auto-detect)
+  python quick_test.py ./input/sample.pdf
+
+  # macOS with Apple Silicon (MPS)
+  python quick_test.py --mac ./input/sample.pdf
+
+  # Explicit device selection
+  python quick_test.py --device mps ./input/sample.pdf
+  python quick_test.py --device cuda ./input/sample.pdf
+  python quick_test.py --device cpu ./input/sample.pdf
+
+  # Specify OCR mode
+  python quick_test.py --mode large ./input/sample.pdf
+        """
+    )
+
+    parser.add_argument(
+        'pdf_path',
+        help='Path to the PDF file to process'
+    )
+
+    parser.add_argument(
+        '--mac',
+        action='store_true',
+        help='Use Apple Metal (MPS) on macOS (shorthand for --device mps)'
+    )
+
+    parser.add_argument(
+        '--device',
+        choices=['cuda', 'mps', 'cpu', None],
+        default=None,
+        help='Device to use: cuda (NVIDIA), mps (Apple Metal), cpu, or auto-detect (default)'
+    )
+
+    parser.add_argument(
+        '--mode',
+        choices=['tiny', 'small', 'base', 'large', 'gundam'],
+        default='base',
+        help='OCR resolution mode (default: base)'
+    )
+
+    parser.add_argument(
+        '--dpi',
+        type=int,
+        default=200,
+        help='DPI for PDF to image conversion (default: 200)'
+    )
+
+    parser.add_argument(
+        '--flash-attention',
+        action='store_true',
+        help='Enable Flash Attention 2 (NVIDIA GPUs only)'
+    )
+
+    return parser.parse_args()
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python quick_test.py <path_to_pdf>")
-        print("Example: python quick_test.py ./input/sample.pdf")
-        sys.exit(1)
-    
-    pdf_path = sys.argv[1]
-    
+    args = parse_args()
+
+    # Handle --mac flag
+    device = args.device
+    if args.mac:
+        if args.device:
+            print("Warning: --mac flag overrides --device argument")
+        device = 'mps'
+
+    pdf_path = args.pdf_path
+
     if not Path(pdf_path).exists():
         print(f"Error: File not found: {pdf_path}")
         sys.exit(1)
-    
+
     print("="*60)
     print("DeepSeek-OCR Quick Test")
     print("="*60)
-    print(f"GPU: NVIDIA GeForce RTX 3080 Ti (12GB VRAM)")
     print(f"Input: {pdf_path}")
-    print(f"Mode: base (1024x1024, 256 tokens)")
+    print(f"Device: {device if device else 'auto-detect'}")
+    print(f"Mode: {args.mode}")
+    print(f"DPI: {args.dpi}")
     print("="*60)
-    
+
     # Initialize processor
     print("\n[1/3] Loading DeepSeek-OCR model...")
     print("(First run will download ~6.6GB from HuggingFace)")
-    
+
     start_time = time.time()
-    
+
     try:
         processor = DeepSeekOCRProcessor(
-            device='cuda',
-            use_flash_attention=False  # Set True if you compiled flash-attn
+            device=device,
+            use_flash_attention=args.flash_attention if device == 'cuda' else None
         )
         
         load_time = time.time() - start_time
@@ -44,12 +113,12 @@ def main():
         # Process PDF
         print(f"\n[2/3] Processing PDF...")
         process_start = time.time()
-        
+
         results = processor.process_pdf(
             pdf_path=pdf_path,
             output_dir='./output',
-            mode='base',  # Use 'large' or 'gundam' for better quality
-            dpi=200
+            mode=args.mode,
+            dpi=args.dpi
         )
         
         process_time = time.time() - process_start

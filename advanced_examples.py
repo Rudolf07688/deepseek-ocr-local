@@ -104,14 +104,15 @@ class BatchOCRProcessor:
         return results
 
 
-def example_batch_processing():
-    """Example: Batch process multiple PDFs in a directory."""
-    
+def example_batch_processing(device: str = None):
+    """Example: Batch process multiple PDFs in a directory.
+
+    Args:
+        device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
+    """
+
     # Initialize processor
-    processor = DeepSeekOCRProcessor(
-        device='cuda',
-        use_flash_attention=True
-    )
+    processor = DeepSeekOCRProcessor(device=device)
     
     # Create batch processor
     batch_processor = BatchOCRProcessor(processor)
@@ -156,11 +157,14 @@ def example_adaptive_mode_selection(image_path: str) -> str:
     return mode
 
 
-def example_structured_extraction():
+def example_structured_extraction(device: str = None):
     """
     Example: Extract specific structured information from documents.
+
+    Args:
+        device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
     """
-    processor = DeepSeekOCRProcessor()
+    processor = DeepSeekOCRProcessor(device=device)
     
     # Example: Extract tables only
     tables_result = processor.process_image(
@@ -202,11 +206,14 @@ def example_quality_validation(result_path: str, expected_keywords: List[str]) -
     return quality_score >= 0.7  # 70% threshold
 
 
-def example_progressive_quality():
+def example_progressive_quality(device: str = None):
     """
     Example: Start with fast mode, upgrade to higher quality if needed.
+
+    Args:
+        device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
     """
-    processor = DeepSeekOCRProcessor()
+    processor = DeepSeekOCRProcessor(device=device)
     image_path = 'complex_document.jpg'
     
     # First pass: Quick extraction with 'small' mode
@@ -233,11 +240,14 @@ def example_progressive_quality():
         )
 
 
-def example_memory_efficient_large_pdf():
+def example_memory_efficient_large_pdf(device: str = None):
     """
     Example: Process very large PDFs with memory management.
+
+    Args:
+        device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
     """
-    processor = DeepSeekOCRProcessor()
+    processor = DeepSeekOCRProcessor(device=device)
     
     # For large PDFs (100+ pages), process in chunks
     from pdf2image import convert_from_path
@@ -290,18 +300,21 @@ def example_memory_efficient_large_pdf():
             torch.cuda.empty_cache()
 
 
-def example_integration_with_langchain():
+def example_integration_with_langchain(device: str = None):
     """
     Example: Integration pattern for LangChain document processing.
+
+    Args:
+        device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
     """
     from typing import Iterator
-    
+
     class DeepSeekDocumentLoader:
         """Custom LangChain-compatible document loader."""
-        
-        def __init__(self, file_path: str, mode: str = 'base'):
+
+        def __init__(self, file_path: str, mode: str = 'base', device: str = None):
             self.file_path = file_path
-            self.processor = DeepSeekOCRProcessor()
+            self.processor = DeepSeekOCRProcessor(device=device)
             self.mode = mode
         
         def lazy_load(self) -> Iterator[Dict]:
@@ -339,7 +352,53 @@ def example_integration_with_langchain():
 def main():
     """Run example based on command-line argument or menu."""
     import sys
-    
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='DeepSeek-OCR Advanced Examples',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run example 1 with auto-detected device
+  python advanced_examples.py 1
+
+  # Run example 2 with NVIDIA GPU
+  python advanced_examples.py --device cuda 2
+
+  # Run example 3 with Apple Metal (macOS)
+  python advanced_examples.py --mac 3
+
+  # Interactive menu
+  python advanced_examples.py
+        """
+    )
+
+    parser.add_argument(
+        'example',
+        nargs='?',
+        help='Example number (1-5) or leave blank for interactive menu'
+    )
+
+    parser.add_argument(
+        '--device',
+        choices=['cuda', 'mps', 'cpu'],
+        default=None,
+        help='Device to use: cuda (NVIDIA), mps (Apple Metal), cpu, or auto-detect (default)'
+    )
+
+    parser.add_argument(
+        '--mac',
+        action='store_true',
+        help='Use Apple Metal (MPS) on macOS (shorthand for --device mps)'
+    )
+
+    args = parser.parse_args()
+
+    # Handle --mac flag
+    device = args.device
+    if args.mac:
+        device = 'mps'
+
     examples = {
         '1': ('Batch Processing', example_batch_processing),
         '2': ('Structured Extraction', example_structured_extraction),
@@ -347,21 +406,21 @@ def main():
         '4': ('Memory Efficient (Large PDF)', example_memory_efficient_large_pdf),
         '5': ('LangChain Integration', example_integration_with_langchain)
     }
-    
-    if len(sys.argv) > 1:
-        choice = sys.argv[1]
-    else:
+
+    choice = args.example
+    if not choice:
         print("\nDeepSeek-OCR Advanced Examples:")
         for key, (name, _) in examples.items():
             print(f"{key}. {name}")
         choice = input("\nSelect example (1-5): ")
-    
+
     if choice in examples:
         name, func = examples[choice]
         print(f"\n{'='*60}")
         print(f"Running: {name}")
+        print(f"Device: {device if device else 'auto-detect'}")
         print('='*60)
-        func()
+        func(device=device)
     else:
         print("Invalid choice")
 
